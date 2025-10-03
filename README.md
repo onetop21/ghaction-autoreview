@@ -9,19 +9,18 @@ OpenAI GPT-5 Codex를 활용한 자동 코드 리뷰 및 문서 생성 GitHub Ac
 - 📝 **자동 문서화**: main 브랜치 머지 시 아키텍처 문서 자동 생성/업데이트
 - 🚀 **간단한 설정**: GitHub Action으로 쉽게 통합
 
-## 설치 방법
+## 🚀 사용 방법
 
-### 1. 저장소에 Secret 추가
+### 1. OpenAI API 키 설정
 
-Settings > Secrets and variables > Actions에서 다음 Secret 추가:
-
-```
-OPENAI_API_KEY: your-openai-api-key
-```
+사용하려는 저장소의 Settings > Secrets and variables > Actions에서:
+- **New repository secret** 클릭
+- Name: `OPENAI_API_KEY`
+- Value: 본인의 OpenAI API 키 입력
 
 ### 2. Workflow 파일 생성
 
-`.github/workflows/code-review.yml` 파일 생성:
+코드 리뷰를 원하는 저장소에 `.github/workflows/code-review.yml` 파일 생성:
 
 ```yaml
 name: Auto Code Review
@@ -36,31 +35,26 @@ on:
 jobs:
   code-review:
     runs-on: ubuntu-latest
-    name: AI Code Review
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Run Auto Review
-        uses: ./
+      - uses: onetop21/ghaction-autoreview@main
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-## 사용 방법
+### 3. 동작 확인
 
-### PR 리뷰
-
+#### PR 자동 리뷰
 1. PR 생성 또는 업데이트
 2. GitHub Action이 자동으로 실행
-3. PR에 리뷰 코멘트 자동 작성
+3. PR에 AI 리뷰 코멘트 자동 작성
 
-### 문서 자동 생성
-
-1. main/master 브랜치에 머지
+#### 문서 자동 생성
+1. main 브랜치에 머지
 2. GitHub Action이 자동으로 실행
 3. `ARCHITECTURE.md` 파일 자동 생성/업데이트
 
