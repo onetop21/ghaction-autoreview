@@ -1,6 +1,6 @@
 import * as core from '@actions/core';
 import * as github from '@actions/github';
-import { reviewCode } from './review';
+import { reviewCodeMultiAgent } from './review-multi-agent';
 import { generateDocumentation } from './documentation';
 
 async function run(): Promise<void> {
@@ -12,10 +12,10 @@ async function run(): Promise<void> {
     const context = github.context;
     const octokit = github.getOctokit(githubToken);
 
-    // PR 리뷰 처리
+    // PR 리뷰 처리 (Multi-Agent 시스템)
     if (context.eventName === 'pull_request') {
-      core.info('Running code review on pull request...');
-      await reviewCode(octokit, context, openaiApiKey, model);
+      core.info('Running Multi-Agent code review on pull request...');
+      await reviewCodeMultiAgent(octokit, context, openaiApiKey, model);
     }
 
     // main/master 브랜치 merge 시 문서 생성/업데이트

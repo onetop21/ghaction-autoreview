@@ -4,6 +4,8 @@ import { Context } from '@actions/github/lib/context';
 import OpenAI from 'openai';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { promptLoader } from './utils/prompt-loader';
+import { diagramGenerator } from './utils/diagram-generator';
 
 type Octokit = ReturnType<typeof getOctokit>;
 
@@ -19,35 +21,26 @@ export async function generateDocumentation(
   // 코드베이스 분석을 위한 주요 파일 수집
   const codebaseFiles = await collectCodebaseFiles();
 
-  // GPT-5 Codex를 통한 문서 생성
-  const docPrompt = `
-당신은 소프트웨어 아키텍트이자 기술 문서 작성 전문가입니다.
-다음 코드베이스를 분석하여 포괄적인 기술 문서를 작성해주세요.
+  // 프롬프트 로드
+  const prompt = await promptLoader.buildPrompt({
+    systemPrompt: 'architect',
+    taskCategory: 'documentation',
+    taskName: 'architecture-doc',
+    variables: {
+      codebaseFiles: JSON.stringify(codebaseFiles.slice(0, 20), null, 2), // 처음 20개만
+    },
+  });
 
-코드베이스:
-${JSON.stringify(codebaseFiles, null, 2)}
-
-다음 형식으로 문서를 작성해주세요:
-
+  const docPrompt = prompt.user || `
 # 프로젝트 아키텍처 문서
 
-## 📐 시스템 아키텍처
+코드베이스:
+${JSON.stringify(codebaseFiles.slice(0, 20), null, 2)}
 
-### 전체 구조
-- (시스템의 전반적인 구조 설명)
-
-### 주요 컴포넌트
-- (각 컴포넌트의 역할과 책임)
-
-### 데이터 플로우
-- (데이터가 시스템을 통해 흐르는 방식)
-
-## 🔧 기술 스택
-- (사용된 기술 및 프레임워크)
-
-## 📂 디렉토리 구조
-\`\`\`
-(주요 디렉토리 설명)
+다음을 포함하여 문서를 작성해주세요:
+- 시스템 아키텍처 (Mermaid graph 포함)
+- 데이터 플로우 (Mermaid flowchart 포함)
+- 주요 기능 시퀀스 (Mermaid sequenceDiagram 포함)
 \`\`\`
 
 ## 🔄 핵심 동작 흐름
@@ -79,14 +72,29 @@ ${JSON.stringify(codebaseFiles, null, 2)}
     messages: [
       {
         role: 'system',
-        content: '당신은 기술 문서 작성 전문가입니다. 명확하고 구조화된 문서를 작성합니다.',
+        content: prompt.system || '당신은 기술 문서 작성 전문가입니다. Mermaid 다이어그램을 포함한 구조화된 문서를 작성합니다.',
       },
       { role: 'user', content: docPrompt },
     ],
     temperature: 0.3,
   });
 
-  const documentation = completion.choices[0]?.message?.content || '문서를 생성할 수 없습니다.';
+  let documentation = completion.choices[0]?.message?.content || '문서를 생성할 수 없습니다.';
+
+  // Mermaid 다이어그램을 PNG로 변환 (선택적)
+  try {
+    const diagramDir = path.join(process.cwd(), 'docs', 'diagrams');
+    await fs.mkdir(diagramDir, { recursive: true });
+
+    const pngPaths = await diagramGenerator.convertMermaidToPng(documentation, diagramDir);
+    if (pngPaths.length > 0) {
+      documentation = diagramGenerator.embedPngInMarkdown(documentation, pngPaths);
+      core.info(`Generated ${pngPaths.length} diagram images`);
+    }
+  } catch (error) {
+    core.warning(`Failed to generate diagram images: ${error}`);
+    // Mermaid 코드를 그대로 유지
+  }
 
   // ARCHITECTURE.md 파일 생성/업데이트
   const docPath = path.join(process.cwd(), 'ARCHITECTURE.md');
