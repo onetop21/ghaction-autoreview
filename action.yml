@@ -1,0 +1,24 @@
+name: 'AI Code Review'
+description: 'Automated code review and documentation using OpenAI GPT-5 Codex'
+author: 'Your Name'
+
+inputs:
+  openai-api-key:
+    description: 'OpenAI API Key'
+    required: true
+  github-token:
+    description: 'GitHub Token'
+    required: true
+    default: ${{ github.token }}
+  model:
+    description: 'OpenAI model to use'
+    required: false
+    default: 'gpt-5-codex'
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'
+
+branding:
+  icon: 'check-circle'
+  color: 'green'
