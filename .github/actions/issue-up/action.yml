@@ -1,0 +1,63 @@
+name: Issue Up
+description: Detect post-merge defects and signal whether a GitHub issue is required.
+inputs:
+  codex-version:
+    description: Codex CLI version.
+    default: "0.5.0"
+  model:
+    description: Codex model to use.
+    default: "gpt-5"
+  prompt-file:
+    description: Prompt file path.
+    default: "prompts/issue-up.md"
+  output-path:
+    description: Report path relative to workspace.
+    default: "artifacts/issue-up/report.md"
+  extra-args:
+    description: Additional CLI args (newline separated, optional).
+    default: ""
+outputs:
+  report-path:
+    description: Location of generated report.
+    value: ${{ steps.analyze.outputs.report_path }}
+  issue-required:
+    description: "true" if the report recommends filing an issue.
+    value: ${{ steps.analyze.outputs.issue_required }}
+runs:
+  using: "composite"
+  steps:
+    - uses: ./.github/actions/setup-codex-cli
+      with:
+        codex-version: ${{ inputs.codex-version }}
+
+    - name: Run issue sweep
+      id: run
+      shell: bash
+      env:
+        MODEL: ${{ inputs.model }}
+        PROMPT_FILE: ${{ inputs.prompt-file }}
+        OUTPUT_PATH: ${{ inputs.output-path }}
+        EXTRA_ARGS: ${{ inputs.extra-args }}
+      run: |
+        set -euo pipefail
+        chmod +x scripts/run_codex_cli.sh
+        if [[ -n "${EXTRA_ARGS}" ]]; then
+          mapfile -t extra <<< "${EXTRA_ARGS}"
+          scripts/run_codex_cli.sh "${MODEL}" "${PROMPT_FILE}" "${OUTPUT_PATH}" "issue" "${extra[@]}"
+        else
+          scripts/run_codex_cli.sh "${MODEL}" "${PROMPT_FILE}" "${OUTPUT_PATH}" "issue"
+        fi
+
+    - name: Analyze verdict
+      id: analyze
+      shell: bash
+      env:
+        OUTPUT_PATH: ${{ inputs.output-path }}
+      run: |
+        set -euo pipefail
+        verdict="false"
+        if grep -q "issue-required" "${OUTPUT_PATH}"; then
+          verdict="true"
+        fi
+        echo "report_path=${OUTPUT_PATH}" >> "${GITHUB_OUTPUT}"
+        echo "issue_required=${verdict}" >> "${GITHUB_OUTPUT}"

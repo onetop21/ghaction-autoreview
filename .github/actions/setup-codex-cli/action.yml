@@ -1,0 +1,37 @@
+name: Setup Codex CLI
+description: Install and cache a pinned Codex CLI release.
+inputs:
+  codex-version:
+    description: Codex CLI version to install.
+    required: true
+    default: "0.5.0"
+runs:
+  using: "composite"
+  steps:
+    - name: Restore Codex CLI cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.codex-cli/${{ inputs.codex-version }}
+        key: codex-${{ runner.os }}-${{ inputs.codex-version }}
+
+    - name: Install Codex CLI
+      shell: bash
+      env:
+        CODEX_VERSION: ${{ inputs.codex-version }}
+      run: |
+        set -euo pipefail
+
+        INSTALL_DIR="${HOME}/.codex-cli/${CODEX_VERSION}"
+        if [[ ! -d "${INSTALL_DIR}" ]]; then
+          python -m venv "${INSTALL_DIR}"
+          "${INSTALL_DIR}/bin/pip" install --upgrade pip
+          "${INSTALL_DIR}/bin/pip" install "codex-cli==${CODEX_VERSION}"
+        fi
+
+        echo "${INSTALL_DIR}/bin" >> "${GITHUB_PATH}"
+
+    - name: Verify Codex CLI
+      shell: bash
+      run: |
+        set -euo pipefail
+        codex --version

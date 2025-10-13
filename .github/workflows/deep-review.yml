@@ -1,0 +1,49 @@
+name: Deep Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  deep-review:
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            publish: true
+          - runner: self-hosted
+            publish: false
+    runs-on: ${{ matrix.runner }}
+    env:
+      CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run deep review
+        id: review
+        uses: ./.github/actions/deep-review
+        with:
+          output-path: artifacts/deep-review/pr-${{ github.event.pull_request.number }}.md
+
+      - name: Upload deep review artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deep-review-${{ matrix.runner }}
+          path: artifacts/deep-review/pr-${{ github.event.pull_request.number }}.md
+          if-no-files-found: error
+
+      - name: Publish PR comment
+        if: matrix.publish == true
+        shell: bash
+        env:
+          REPORT_FILE: artifacts/deep-review/pr-${{ github.event.pull_request.number }}.md
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          body="$(cat "${REPORT_FILE}")"
+          gh pr comment "${PR_NUMBER}" --body "${body}"
