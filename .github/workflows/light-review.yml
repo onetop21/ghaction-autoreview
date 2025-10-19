@@ -20,5 +20,4 @@ jobs:
         uses: ./
         with:
           mode: light
-        env:
-          CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
+          codex-api-key: ${{ secrets.OPENAI_API_KEY }}

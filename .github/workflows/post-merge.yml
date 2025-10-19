@@ -24,8 +24,7 @@ jobs:
         uses: ./
         with:
           mode: docs
-        env:
-          CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
+          codex-api-key: ${{ secrets.OPENAI_API_KEY }}
 
   issue-detection:
     # [docs] 커밋으로 인한 무한 루프 방지
@@ -38,5 +37,4 @@ jobs:
         uses: ./
         with:
           mode: issue
-        env:
-          CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
+          codex-api-key: ${{ secrets.OPENAI_API_KEY }}

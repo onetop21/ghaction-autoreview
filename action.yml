@@ -5,6 +5,14 @@ inputs:
   mode:
     description: 실행할 모듈 (light, deep, docs, issue)
     required: true
+  codex-api-key:
+    description: Codex CLI API Key (미지정 시 CODEX_API_KEY 환경변수 사용)
+    required: false
+    default: ""
+  github-token:
+    description: GitHub token for publishing results (미지정 시 github.token 사용)
+    required: false
+    default: ""
   codex-version:
     description: 설치할 Codex CLI 버전
     default: "0.5.0"
@@ -147,8 +155,17 @@ runs:
         OUTPUT_FILE: ${{ steps.params.outputs.output }}
         MODE: ${{ steps.params.outputs.mode }}
         EXTRA_ARGS: ${{ inputs.extra-args }}
+        INPUT_CODEX_API_KEY: ${{ inputs.codex-api-key }}
       run: |
         set -euo pipefail
+
+        # Codex API Key 설정 (input 우선, 없으면 env 사용)
+        if [[ -n "${INPUT_CODEX_API_KEY}" ]]; then
+          export CODEX_API_KEY="${INPUT_CODEX_API_KEY}"
+        elif [[ -z "${CODEX_API_KEY:-}" ]]; then
+          echo "::error::CODEX_API_KEY가 설정되지 않았습니다. codex-api-key input 또는 CODEX_API_KEY 환경변수를 설정하세요."
+          exit 1
+        fi
 
         echo "::group::Running Codex CLI"
 
@@ -206,8 +223,12 @@ runs:
       env:
         REPORT_FILE: ${{ steps.execute.outputs.report_path }}
         COMMIT_SHA: ${{ github.sha }}
-        GH_TOKEN: ${{ github.token }}
+        INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
+        DEFAULT_GITHUB_TOKEN: ${{ github.token }}
       run: |
+        # GitHub Token 설정 (input 우선, 없으면 github.token 사용)
+        export GH_TOKEN="${INPUT_GITHUB_TOKEN:-${DEFAULT_GITHUB_TOKEN}}"
+
         set -euo pipefail
 
         echo "::group::Publishing commit comment"
@@ -231,8 +252,12 @@ runs:
       env:
         REPORT_FILE: ${{ steps.execute.outputs.report_path }}
         PR_NUMBER: ${{ github.event.pull_request.number }}
-        GH_TOKEN: ${{ github.token }}
+        INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
+        DEFAULT_GITHUB_TOKEN: ${{ github.token }}
       run: |
+        # GitHub Token 설정 (input 우선, 없으면 github.token 사용)
+        export GH_TOKEN="${INPUT_GITHUB_TOKEN:-${DEFAULT_GITHUB_TOKEN}}"
+
         set -euo pipefail
 
         echo "::group::Publishing PR comment"
@@ -252,8 +277,12 @@ runs:
       shell: bash
       env:
         DOC_FILE: ${{ steps.execute.outputs.report_path }}
-        GH_TOKEN: ${{ github.token }}
+        INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
+        DEFAULT_GITHUB_TOKEN: ${{ github.token }}
       run: |
+        # GitHub Token 설정 (input 우선, 없으면 github.token 사용)
+        export GH_TOKEN="${INPUT_GITHUB_TOKEN:-${DEFAULT_GITHUB_TOKEN}}"
+
         set -euo pipefail
 
         echo "::group::Committing documentation"
@@ -287,8 +316,12 @@ Commit: ${GITHUB_SHA}"
       shell: bash
       env:
         ISSUE_FILE: ${{ steps.execute.outputs.report_path }}
-        GH_TOKEN: ${{ github.token }}
+        INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
+        DEFAULT_GITHUB_TOKEN: ${{ github.token }}
       run: |
+        # GitHub Token 설정 (input 우선, 없으면 github.token 사용)
+        export GH_TOKEN="${INPUT_GITHUB_TOKEN:-${DEFAULT_GITHUB_TOKEN}}"
+
         set -euo pipefail
 
         echo "::group::Creating GitHub issue"
