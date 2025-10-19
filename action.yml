@@ -1,102 +1,99 @@
 name: Codex Auto Review
-description: Codex CLI 기반 리뷰/문서화/이슈 감지를 실행합니다.
+description: Codex CLI 기반 리뷰/문서화/이슈 감지를 자동으로 실행하고 결과를 게시합니다.
+
 inputs:
   mode:
-    description: 실행할 모듈 (light, deep, docs, issue).
+    description: 실행할 모듈 (light, deep, docs, issue)
     required: true
   codex-version:
-    description: 설치할 Codex CLI 버전.
+    description: 설치할 Codex CLI 버전
     default: "0.5.0"
   model:
-    description: Codex 모델 ID (미지정 시 모드별 기본값 사용).
+    description: Codex 모델 ID (미지정 시 모드별 기본값 사용)
     default: ""
   prompt-file:
-    description: 사용할 프롬프트 파일 경로 (미지정 시 모드별 기본값 사용).
+    description: 사용할 프롬프트 파일 경로 (미지정 시 모드별 기본값 사용)
     default: ""
   output-path:
-    description: 리포트 또는 문서 출력 경로 (미지정 시 모드별 기본값 사용).
+    description: 리포트 출력 경로 (미지정 시 모드별 기본값 사용)
     default: ""
   extra-args:
-    description: Codex CLI에 추가로 전달할 옵션(개행 구분).
+    description: Codex CLI에 추가로 전달할 옵션
     default: ""
+  publish:
+    description: 결과 자동 게시 여부 (true/false)
+    default: "true"
+
 outputs:
   report-path:
-    description: 생성된 리포트/문서 경로.
-    value: ${{ steps.light.outputs.report-path || steps.deep.outputs.report-path || steps.docs.outputs.report-path || steps.issue.outputs.report-path }}
+    description: 생성된 리포트/문서 경로
+    value: ${{ steps.execute.outputs.report_path }}
   issue-required:
-    description: Issue Up 모드에서 이슈 작성이 필요한 경우 true.
-    value: ${{ steps.issue.outputs.issue-required || 'false' }}
+    description: Issue Up 모드에서 이슈 작성이 필요한 경우 true
+    value: ${{ steps.analyze.outputs.issue_required }}
+
 runs:
   using: composite
   steps:
-    - name: 모드 검증
-      id: validate
-      shell: bash
-      env:
-        MODE_INPUT: ${{ inputs.mode }}
-      run: |
-        set -euo pipefail
-        mode="$(echo "${MODE_INPUT}" | tr '[:upper:]' '[:lower:]')"
-        case "${mode}" in
-          light|deep|docs|issue) ;;
-          *) echo "지원하지 않는 mode 값입니다: ${MODE_INPUT}" >&2; exit 1 ;;
-        esac
-        echo "mode=${mode}" >> "${GITHUB_OUTPUT}"
-
-    - name: 파라미터 계산
+    - name: 모드 검증 및 파라미터 계산
       id: params
       shell: bash
       env:
-        MODE: ${{ steps.validate.outputs.mode }}
+        MODE_INPUT: ${{ inputs.mode }}
         PROMPT_INPUT: ${{ inputs.prompt-file }}
         OUTPUT_INPUT: ${{ inputs.output-path }}
         MODEL_INPUT: ${{ inputs.model }}
       run: |
         set -euo pipefail
 
-        mode="${MODE}"
+        # 모드 정규화
+        mode="$(echo "${MODE_INPUT}" | tr '[:upper:]' '[:lower:]')"
+
+        # 모드별 기본값 설정
         case "${mode}" in
           light)
-            default_prompt="prompts/light-review.md"
-            default_output="codex/reports/light-review.md"
+            default_prompt="${GITHUB_ACTION_PATH}/prompts/light-review.md"
+            default_output="artifacts/light-review-${GITHUB_SHA::7}.md"
             default_model="gpt-5-codex"
             ;;
           deep)
-            default_prompt="prompts/deep-review.md"
-            default_output="codex/reports/deep-review.md"
+            default_prompt="${GITHUB_ACTION_PATH}/prompts/deep-review.md"
+            default_output="artifacts/deep-review-pr-${GITHUB_REF##*/}.md"
             default_model="gpt-5-codex"
             ;;
           docs)
-            default_prompt="prompts/documentation.md"
-            default_output="codex/docs/latest.md"
+            default_prompt="${GITHUB_ACTION_PATH}/prompts/documentation.md"
+            merge_date="$(date -u +%Y-%m-%d)"
+            default_output="docs/${merge_date}-${GITHUB_SHA::7}-merge.md"
             default_model="gpt-5"
             ;;
           issue)
-            default_prompt="prompts/issue-up.md"
-            default_output="codex/reports/issue-up.md"
+            default_prompt="${GITHUB_ACTION_PATH}/prompts/issue-up.md"
+            default_output="artifacts/issue-up-${GITHUB_SHA::7}.md"
             default_model="gpt-5"
             ;;
           *)
-            echo "알 수 없는 mode 값입니다: ${mode}" >&2
+            echo "::error::지원하지 않는 mode 값입니다: ${MODE_INPUT}"
+            echo "::error::사용 가능한 값: light, deep, docs, issue"
             exit 1
             ;;
         esac
 
-        prompt="${PROMPT_INPUT}"
-        if [[ -z "${prompt}" ]]; then
-          prompt="${default_prompt}"
+        # 입력값 또는 기본값 사용
+        prompt="${PROMPT_INPUT:-${default_prompt}}"
+        output="${OUTPUT_INPUT:-${default_output}}"
+        model="${MODEL_INPUT:-${default_model}}"
+
+        # 프롬프트 파일 존재 확인
+        if [[ ! -f "${prompt}" ]]; then
+          echo "::error::프롬프트 파일을 찾을 수 없습니다: ${prompt}"
+          exit 1
         fi
 
-        output="${OUTPUT_INPUT}"
-        if [[ -z "${output}" ]]; then
-          output="${default_output}"
-        fi
+        # 출력 디렉토리 생성
+        mkdir -p "$(dirname "${output}")"
 
-        model="${MODEL_INPUT}"
-        if [[ -z "${model}" ]]; then
-          model="${default_model}"
-        fi
-
+        # 출력
         {
           echo "mode=${mode}"
           echo "prompt=${prompt}"
@@ -104,46 +101,208 @@ runs:
           echo "model=${model}"
         } >> "${GITHUB_OUTPUT}"
 
-    - name: Light 리뷰 실행
-      if: steps.params.outputs.mode == 'light'
-      id: light
-      uses: ./.github/actions/light-review
-      with:
-        codex-version: ${{ inputs.codex-version }}
-        model: ${{ steps.params.outputs.model }}
-        prompt-file: ${{ steps.params.outputs.prompt }}
-        output-path: ${{ steps.params.outputs.output }}
-        extra-args: ${{ inputs.extra-args }}
+        echo "::notice::Mode: ${mode}, Model: ${model}"
+        echo "::notice::Prompt: ${prompt}"
+        echo "::notice::Output: ${output}"
 
-    - name: Deep 리뷰 실행
-      if: steps.params.outputs.mode == 'deep'
-      id: deep
-      uses: ./.github/actions/deep-review
+    - name: Codex CLI 캐시 복원
+      uses: actions/cache@v4
       with:
-        codex-version: ${{ inputs.codex-version }}
-        model: ${{ steps.params.outputs.model }}
-        prompt-file: ${{ steps.params.outputs.prompt }}
-        output-path: ${{ steps.params.outputs.output }}
-        extra-args: ${{ inputs.extra-args }}
+        path: ~/.codex-cli/${{ inputs.codex-version }}
+        key: codex-${{ runner.os }}-${{ inputs.codex-version }}
 
-    - name: 문서화 실행
-      if: steps.params.outputs.mode == 'docs'
-      id: docs
-      uses: ./.github/actions/documentation
-      with:
-        codex-version: ${{ inputs.codex-version }}
-        model: ${{ steps.params.outputs.model }}
-        prompt-file: ${{ steps.params.outputs.prompt }}
-        output-path: ${{ steps.params.outputs.output }}
-        extra-args: ${{ inputs.extra-args }}
+    - name: Codex CLI 설치
+      shell: bash
+      env:
+        CODEX_VERSION: ${{ inputs.codex-version }}
+      run: |
+        set -euo pipefail
 
-    - name: Issue Up 실행
+        INSTALL_DIR="${HOME}/.codex-cli/${CODEX_VERSION}"
+
+        if [[ ! -d "${INSTALL_DIR}" ]]; then
+          echo "::group::Installing Codex CLI ${CODEX_VERSION}"
+          python3 -m venv "${INSTALL_DIR}"
+          "${INSTALL_DIR}/bin/pip" install --upgrade pip
+          "${INSTALL_DIR}/bin/pip" install "codex-cli==${CODEX_VERSION}"
+          echo "::endgroup::"
+        else
+          echo "::notice::Codex CLI ${CODEX_VERSION} already installed (from cache)"
+        fi
+
+        echo "${INSTALL_DIR}/bin" >> "${GITHUB_PATH}"
+
+    - name: Codex CLI 버전 확인
+      shell: bash
+      run: |
+        set -euo pipefail
+        codex --version
+
+    - name: Codex CLI 실행
+      id: execute
+      shell: bash
+      env:
+        MODEL: ${{ steps.params.outputs.model }}
+        PROMPT_FILE: ${{ steps.params.outputs.prompt }}
+        OUTPUT_FILE: ${{ steps.params.outputs.output }}
+        MODE: ${{ steps.params.outputs.mode }}
+        EXTRA_ARGS: ${{ inputs.extra-args }}
+      run: |
+        set -euo pipefail
+
+        echo "::group::Running Codex CLI"
+
+        # Codex CLI 실행 (실제 CLI 인터페이스에 맞게 조정 필요)
+        if [[ -n "${EXTRA_ARGS}" ]]; then
+          codex exec \
+            --model "${MODEL}" \
+            --prompt-file "${PROMPT_FILE}" \
+            --mode "${MODE}" \
+            --output "${OUTPUT_FILE}" \
+            ${EXTRA_ARGS}
+        else
+          codex exec \
+            --model "${MODEL}" \
+            --prompt-file "${PROMPT_FILE}" \
+            --mode "${MODE}" \
+            --output "${OUTPUT_FILE}"
+        fi
+
+        echo "::endgroup::"
+
+        if [[ ! -f "${OUTPUT_FILE}" ]]; then
+          echo "::error::Codex CLI 실행 후 출력 파일이 생성되지 않았습니다: ${OUTPUT_FILE}"
+          exit 1
+        fi
+
+        echo "report_path=${OUTPUT_FILE}" >> "${GITHUB_OUTPUT}"
+        echo "::notice::Report generated: ${OUTPUT_FILE}"
+
+    - name: Issue Up 결과 분석
       if: steps.params.outputs.mode == 'issue'
-      id: issue
-      uses: ./.github/actions/issue-up
-      with:
-        codex-version: ${{ inputs.codex-version }}
-        model: ${{ steps.params.outputs.model }}
-        prompt-file: ${{ steps.params.outputs.prompt }}
-        output-path: ${{ steps.params.outputs.output }}
-        extra-args: ${{ inputs.extra-args }}
+      id: analyze
+      shell: bash
+      env:
+        OUTPUT_FILE: ${{ steps.execute.outputs.report_path }}
+      run: |
+        set -euo pipefail
+
+        verdict="false"
+        if grep -qi "issue-required" "${OUTPUT_FILE}"; then
+          verdict="true"
+          echo "::notice::Issue creation required"
+        else
+          echo "::notice::No issue required"
+        fi
+
+        echo "issue_required=${verdict}" >> "${GITHUB_OUTPUT}"
+
+    - name: 결과 게시 - Light Review (Commit Comment)
+      if: |
+        inputs.publish == 'true' &&
+        steps.params.outputs.mode == 'light' &&
+        github.event_name == 'push'
+      shell: bash
+      env:
+        REPORT_FILE: ${{ steps.execute.outputs.report_path }}
+        COMMIT_SHA: ${{ github.sha }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+
+        echo "::group::Publishing commit comment"
+
+        body="$(cat "${REPORT_FILE}")"
+
+        gh api \
+          --method POST \
+          "repos/${GITHUB_REPOSITORY}/commits/${COMMIT_SHA}/comments" \
+          -f body="${body}"
+
+        echo "::endgroup::"
+        echo "::notice::Commit comment published"
+
+    - name: 결과 게시 - Deep Review (PR Comment)
+      if: |
+        inputs.publish == 'true' &&
+        steps.params.outputs.mode == 'deep' &&
+        github.event_name == 'pull_request'
+      shell: bash
+      env:
+        REPORT_FILE: ${{ steps.execute.outputs.report_path }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+
+        echo "::group::Publishing PR comment"
+
+        body="$(cat "${REPORT_FILE}")"
+
+        gh pr comment "${PR_NUMBER}" --body "${body}"
+
+        echo "::endgroup::"
+        echo "::notice::PR comment published"
+
+    - name: 결과 게시 - Documentation (Commit to repo)
+      if: |
+        inputs.publish == 'true' &&
+        steps.params.outputs.mode == 'docs' &&
+        github.event_name == 'push'
+      shell: bash
+      env:
+        DOC_FILE: ${{ steps.execute.outputs.report_path }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+
+        echo "::group::Committing documentation"
+
+        if git status --short "${DOC_FILE}" | grep -q .; then
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "${DOC_FILE}"
+
+          merge_date="$(date -u +%Y-%m-%d)"
+          git commit -m "[docs] Documentation for merge on ${merge_date}
+
+Generated by Codex Auto Review
+Commit: ${GITHUB_SHA}"
+
+          git push
+
+          echo "::endgroup::"
+          echo "::notice::Documentation committed and pushed"
+        else
+          echo "::notice::No changes to commit"
+          echo "::endgroup::"
+        fi
+
+    - name: 결과 게시 - Issue Up (Create GitHub Issue)
+      if: |
+        inputs.publish == 'true' &&
+        steps.params.outputs.mode == 'issue' &&
+        steps.analyze.outputs.issue_required == 'true' &&
+        github.event_name == 'push'
+      shell: bash
+      env:
+        ISSUE_FILE: ${{ steps.execute.outputs.report_path }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+
+        echo "::group::Creating GitHub issue"
+
+        # 제목 추출 시도 (한글/영문 모두 지원)
+        title="$(grep -m1 -E '^-\s*(Title|제목):' "${ISSUE_FILE}" | sed -E 's/^-\s*(Title|제목):\s*//' || true)"
+
+        if [[ -z "${title}" ]]; then
+          title="Post-merge issue detected by Codex Auto Review"
+        fi
+
+        body="$(cat "${ISSUE_FILE}")"
+
+        gh issue create --title "${title}" --body "${body}"
+
+        echo "::endgroup::"
+        echo "::notice::GitHub issue created: ${title}"

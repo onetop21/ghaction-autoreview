@@ -11,92 +11,32 @@ permissions:
   issues: write
 
 jobs:
-  post-merge:
+  documentation:
+    # [docs] 커밋으로 인한 무한 루프 방지
     if: ${{ !startsWith(github.event.head_commit.message, '[docs]') }}
-    strategy:
-      matrix:
-        include:
-          - runner: ubuntu-latest
-            publish: true
-          - runner: self-hosted
-            publish: false
-    runs-on: ${{ matrix.runner }}
-    env:
-      CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      MERGE_DATE: ${{ github.event.head_commit.timestamp }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Compute filenames
-        id: meta
-        shell: bash
-        run: |
-          set -euo pipefail
-          merge_date="$(date -u -d "${MERGE_DATE}" +%Y-%m-%d)"
-          short_sha="${GITHUB_SHA::7}"
-          doc_path="docs/${merge_date}-${short_sha}-merge.md"
-          issue_path="artifacts/issue-up/${short_sha}.md"
-          echo "doc_path=${doc_path}" >> "${GITHUB_OUTPUT}"
-          echo "issue_path=${issue_path}" >> "${GITHUB_OUTPUT}"
-          echo "merge_date=${merge_date}" >> "${GITHUB_OUTPUT}"
-          mkdir -p "$(dirname "${doc_path}")"
-          mkdir -p "$(dirname "${issue_path}")"
-
       - name: Generate documentation
-        id: docs
-        uses: ./.github/actions/documentation
+        uses: ./
         with:
-          output-path: ${{ steps.meta.outputs.doc_path }}
-
-      - name: Upload documentation artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: documentation-${{ matrix.runner }}
-          path: ${{ steps.meta.outputs.doc_path }}
-          if-no-files-found: error
-
-      - name: Commit documentation
-        if: matrix.publish == true
-        shell: bash
+          mode: docs
         env:
-          DOC_PATH: ${{ steps.meta.outputs.doc_path }}
-          MERGE_DATE: ${{ steps.meta.outputs.merge_date }}
-        run: |
-          set -euo pipefail
-          if git status --short "${DOC_PATH}" | grep -q .; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add "${DOC_PATH}"
-            git commit -m "[docs] Merge documentation ${MERGE_DATE}"
-            git push
-          fi
+          CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
 
-      - name: Run issue sweep
-        id: issue
-        uses: ./.github/actions/issue-up
+  issue-detection:
+    # [docs] 커밋으로 인한 무한 루프 방지
+    if: ${{ !startsWith(github.event.head_commit.message, '[docs]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detect issues
+        uses: ./
         with:
-          output-path: ${{ steps.meta.outputs.issue_path }}
-
-      - name: Upload issue sweep artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: issue-up-${{ matrix.runner }}
-          path: ${{ steps.meta.outputs.issue_path }}
-          if-no-files-found: error
-
-      - name: Create GitHub issue
-        if: matrix.publish == true && steps.issue.outputs.issue-required == 'true'
-        shell: bash
+          mode: issue
         env:
-          ISSUE_FILE: ${{ steps.meta.outputs.issue_path }}
-        run: |
-          set -euo pipefail
-          title="$(grep -m1 '^- Title:' "${ISSUE_FILE}" | sed 's/^-\sTitle:\s*//')"
-          body="$(cat "${ISSUE_FILE}")"
-          if [[ -z "${title}" ]]; then
-            title="Follow-up issue detected by Issue Up"
-          fi
-          gh issue create --title "${title}" --body "${body}"
+          CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
