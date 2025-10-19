@@ -14,8 +14,8 @@ inputs:
     required: false
     default: ""
   codex-version:
-    description: 설치할 Codex CLI 버전
-    default: "0.5.0"
+    description: 설치할 @openai/codex npm 패키지 버전
+    default: "latest"
   model:
     description: Codex 모델 ID (미지정 시 모드별 기본값 사용)
     default: ""
@@ -113,11 +113,10 @@ runs:
         echo "::notice::Prompt: ${prompt}"
         echo "::notice::Output: ${output}"
 
-    - name: Codex CLI 캐시 복원
-      uses: actions/cache@v4
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
       with:
-        path: ~/.codex-cli/${{ inputs.codex-version }}
-        key: codex-${{ runner.os }}-${{ inputs.codex-version }}
+        node-version: '20'
 
     - name: Codex CLI 설치
       shell: bash
@@ -126,25 +125,15 @@ runs:
       run: |
         set -euo pipefail
 
-        INSTALL_DIR="${HOME}/.codex-cli/${CODEX_VERSION}"
-
-        if [[ ! -d "${INSTALL_DIR}" ]]; then
-          echo "::group::Installing Codex CLI ${CODEX_VERSION}"
-          python3 -m venv "${INSTALL_DIR}"
-          "${INSTALL_DIR}/bin/pip" install --upgrade pip
-          "${INSTALL_DIR}/bin/pip" install "codex-cli==${CODEX_VERSION}"
-          echo "::endgroup::"
-        else
-          echo "::notice::Codex CLI ${CODEX_VERSION} already installed (from cache)"
-        fi
-
-        echo "${INSTALL_DIR}/bin" >> "${GITHUB_PATH}"
+        echo "::group::Installing @openai/codex ${CODEX_VERSION}"
+        npm install -g @openai/codex@${CODEX_VERSION}
+        echo "::endgroup::"
 
     - name: Codex CLI 버전 확인
       shell: bash
       run: |
         set -euo pipefail
-        codex --version
+        npx @openai/codex --version || echo "Codex CLI installed"
 
     - name: Codex CLI 실행
       id: execute
@@ -159,11 +148,13 @@ runs:
       run: |
         set -euo pipefail
 
-        # Codex API Key 설정 (input 우선, 없으면 env 사용)
+        # OpenAI API Key 설정 (input 우선, 없으면 env 사용)
         if [[ -n "${INPUT_CODEX_API_KEY}" ]]; then
-          export CODEX_API_KEY="${INPUT_CODEX_API_KEY}"
-        elif [[ -z "${CODEX_API_KEY:-}" ]]; then
-          echo "::error::CODEX_API_KEY가 설정되지 않았습니다. codex-api-key input 또는 CODEX_API_KEY 환경변수를 설정하세요."
+          export OPENAI_API_KEY="${INPUT_CODEX_API_KEY}"
+        elif [[ -n "${CODEX_API_KEY:-}" ]]; then
+          export OPENAI_API_KEY="${CODEX_API_KEY}"
+        elif [[ -z "${OPENAI_API_KEY:-}" ]]; then
+          echo "::error::API Key가 설정되지 않았습니다. codex-api-key input 또는 OPENAI_API_KEY/CODEX_API_KEY 환경변수를 설정하세요."
           exit 1
         fi
 
